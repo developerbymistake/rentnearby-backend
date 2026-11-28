@@ -24,7 +24,8 @@ public sealed record PostFields(
 // Contract 2.4: a public post IS a Trip row. Create (a Draft trip with zero days), publish / edit an own trip, unpublish.
 public sealed class PublicTripService(
     ApplicationDbContext db, IUnitOfWork unitOfWork, ITripCityCatalog catalog, ISeekerLimits seekerLimits, PublicTripReader reader,
-    SocialAfterCommit afterCommit, INoticeWriter notices, TimeProvider clock, ILogger<PublicTripService> logger)
+    SocialAfterCommit afterCommit, INoticeWriter notices, TimeProvider clock, ILogger<PublicTripService> logger,
+    DiscoverCache? discover = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -162,6 +163,7 @@ public sealed class PublicTripService(
         afterCommit.Hint(SocialLiveScopes.Limits, me);
         afterCommit.Wake();
         await afterCommit.FlushAsync(ct);
+        discover?.Invalidate(me);
         return await AnswerAsync(me, trip.Id, ct, notify);
     }
 
@@ -332,6 +334,7 @@ public sealed class PublicTripService(
             afterCommit.Wake();
         }
         await afterCommit.FlushAsync(ct);
+        discover?.Invalidate(me);
         return await AnswerAsync(me, trip.Id, ct, notify);
     }
 
@@ -372,6 +375,7 @@ public sealed class PublicTripService(
         afterCommit.Hint(SocialLiveScopes.JoinRequests, owner);
         if (row.Requesters is { Length: > 0 } requesters) afterCommit.Hint(SocialLiveScopes.MyJoinRequests, requesters);
         await afterCommit.FlushAsync(ct);
+        discover?.Invalidate(owner);
         logger.LogInformation("social.trip.unpublished {TripId} {ByAdmin}", tripId, ownerId is null);
         return BuddyResult<bool>.Success(true);
     }

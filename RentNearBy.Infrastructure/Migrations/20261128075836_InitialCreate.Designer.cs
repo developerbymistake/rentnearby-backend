@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261127222515_InitialCreate")]
+    [Migration("20261128075836_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3726,6 +3726,31 @@ namespace RentNearBy.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.DiscoverHide", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("HiddenUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("HiddenAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("UserId", "HiddenUserId");
+
+                    b.HasIndex("HiddenUserId");
+
+                    b.HasIndex(new[] { "HiddenAt" }, "ix_discoverhides_at");
+
+                    b.ToTable("DiscoverHides", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_discoverhides_not_self", "\"UserId\" <> \"HiddenUserId\"");
+                        });
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.Social.Follow", b =>
                 {
                     b.Property<Guid>("FollowerId")
@@ -3742,11 +3767,17 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<DateTime?>("EffectsAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("char(1)");
 
                     b.HasKey("FollowerId", "FolloweeId");
+
+                    b.HasIndex(new[] { "CreatedAt" }, "ix_follows_effects_pending")
+                        .HasFilter("\"EffectsAt\" IS NULL");
 
                     b.HasIndex(new[] { "FolloweeId", "CreatedAt", "FollowerId" }, "ix_follows_followers")
                         .IsDescending(false, true, false)
@@ -3765,6 +3796,49 @@ namespace RentNearBy.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_follows_not_self", "\"FollowerId\" <> \"FolloweeId\"");
 
                             t.HasCheckConstraint("ck_follows_status", "\"Status\" IN ('A', 'R')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.FollowCountDirty", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("MarkedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("FollowCountDirty", (string)null);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.FollowPushGroup", b =>
+                {
+                    b.Property<Guid>("ReceiverId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .HasColumnType("char(1)");
+
+                    b.Property<DateTime?>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PendingSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ReceiverId", "Kind");
+
+                    b.HasIndex(new[] { "DueAt" }, "ix_followpushgroups_due")
+                        .HasFilter("\"DueAt\" IS NOT NULL");
+
+                    b.ToTable("FollowPushGroups", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_followpushgroups_kind", "\"Kind\" IN ('A', 'R')");
                         });
                 });
 
@@ -3966,6 +4040,23 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<short>("FollowBlockLevel")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
+
+                    b.Property<DateTime?>("FollowBlockLevelAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FollowBlockUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<DateTime[]>("FollowSendTimes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone[]")
+                        .HasDefaultValueSql("'{}'::timestamptz[]");
+
                     b.Property<int>("FollowerCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -4069,8 +4160,18 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("UserId");
 
+                    b.HasIndex(new[] { "LastDistrictId", "LastDistrictAt" }, "ix_userprofiles_district")
+                        .IsDescending(false, true)
+                        .HasFilter("\"LastDistrictId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "Interests" }, "ix_userprofiles_interests");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "Interests" }, "ix_userprofiles_interests"), "gin");
+
                     b.HasIndex(new[] { "LastDistrictId", "LastDistrictAt" }, "ix_userprofiles_nearby")
                         .HasFilter("\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "HomeStateName" }, "ix_userprofiles_state");
 
                     b.ToTable("UserProfiles", null, t =>
                         {
@@ -6088,6 +6189,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsDescending()
                         .HasFilter("\"IsPublic\"");
 
+                    b.HasIndex(new[] { "CityKey", "StartDate" }, "ix_trips_public_city")
+                        .HasFilter("\"IsPublic\"");
+
                     b.HasIndex(new[] { "StartDate" }, "ix_trips_startdate")
                         .HasFilter("\"StartDate\" IS NOT NULL");
 
@@ -7510,6 +7614,21 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.DiscoverHide", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("HiddenUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.Social.Follow", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.User", null)
@@ -7521,6 +7640,24 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("FollowerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.FollowCountDirty", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("RentNearBy.Core.Entities.Social.FollowCountDirty", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.FollowPushGroup", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReceiverId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

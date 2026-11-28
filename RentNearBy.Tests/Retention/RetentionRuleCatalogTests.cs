@@ -16,6 +16,8 @@ public class RetentionRuleCatalogTests
         "BuddyRequests", "UserNotices", "TripPaymentsEnded", "TripMemberInvites",
         "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
         "TripJoinRequests", "MessageSnapshots", "DirectChatRooms",
+        // Discover: X-hidden travellers come back after 30 days.
+        "DiscoverHides",
         // Trip compaction (an UPDATE of old finished trips, not a delete; dry run by default).
         "TripCompaction",
         "StayQuoteIssues",

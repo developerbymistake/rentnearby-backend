@@ -209,16 +209,29 @@ public static class SocialSql
         return person;
     }
 
-    // Deletes one follow row with its counters and the buddy row it allowed (contract 1.3): returns the deleted status or null.
-    internal static readonly string DeleteFollowSql = $"""
+    // Deletes one follow row and the buddy row it allowed (contract 1.3), and marks both users for the FollowEffectsJob recount
+    // (DESIGN 5.2: no inline +1/-1 next to an absolute recount). Returns the deleted status or null.
+    internal const string DeleteFollowSql = """
         WITH d AS (DELETE FROM "Follows" WHERE "FollowerId" = @a AND "FolloweeId" = @b RETURNING "Status"),
-        c1 AS (UPDATE "UserProfiles" SET "FollowingCount" = GREATEST(0, "FollowingCount" - 1)
-               WHERE "UserId" = @a AND EXISTS (SELECT 1 FROM d WHERE d."Status" = '{FollowStatuses.Accepted}')),
-        c2 AS (UPDATE "UserProfiles" SET "FollowerCount" = GREATEST(0, "FollowerCount" - 1)
-               WHERE "UserId" = @b AND EXISTS (SELECT 1 FROM d WHERE d."Status" = '{FollowStatuses.Accepted}')),
+        dirty AS (INSERT INTO "FollowCountDirty" ("UserId", "MarkedAt")
+                  SELECT DISTINCT x.id, now() FROM (VALUES (@a), (@b)) x(id) WHERE EXISTS (SELECT 1 FROM d)
+                  ORDER BY x.id
+                  ON CONFLICT ("UserId") DO UPDATE SET "MarkedAt" = EXCLUDED."MarkedAt"),
         bd AS (DELETE FROM "Buddies" WHERE "UserId" = @b AND "BuddyUserId" = @a)
         SELECT d."Status" AS "Value" FROM d
         """;
+
+    // Users whose FollowerCount / FollowingCount FollowEffectsJob must recount; written in the same transaction as the Follows change.
+    // Every dirty write upserts with DO UPDATE (holds the row lock until commit, so the recount skips it) in UserId order (no deadlock).
+    internal const string MarkDirtySql = """
+        INSERT INTO "FollowCountDirty" ("UserId", "MarkedAt")
+        SELECT DISTINCT u.id, now() FROM unnest(@ids) AS u(id)
+        ORDER BY u.id
+        ON CONFLICT ("UserId") DO UPDATE SET "MarkedAt" = EXCLUDED."MarkedAt"
+        """;
+
+    public static Task<int> MarkDirtyAsync(ApplicationDbContext db, IReadOnlyCollection<Guid> users, CancellationToken ct)
+        => db.Database.ExecuteSqlRawAsync(MarkDirtySql, [Uuids("ids", users)], ct);
 
     public static async Task<string?> DeleteFollowAsync(ApplicationDbContext db, Guid follower, Guid followee, CancellationToken ct)
         => (await db.Database.SqlQueryRaw<string>(DeleteFollowSql, Uuid("a", follower), Uuid("b", followee)).ToListAsync(ct)).FirstOrDefault();

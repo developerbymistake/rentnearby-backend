@@ -18,7 +18,8 @@ namespace RentNearBy.Infrastructure.Services.Social;
 // Contract 2.5: join requests of public trips. Accept writes a trip MEMBER only (plus the optional My Buddies row), never a follow.
 public sealed class JoinRequestService(
     ApplicationDbContext db, ISeekerLimits seekerLimits, INoticeWriter notices, IBuddyLiveHints hints, ITripGroupChat groupChat,
-    PublicTripReader reader, SocialAfterCommit afterCommit, TimeProvider clock, ILogger<JoinRequestService> logger)
+    PublicTripReader reader, SocialAfterCommit afterCommit, TimeProvider clock, ILogger<JoinRequestService> logger,
+    DiscoverCache? discover = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -259,6 +260,7 @@ public sealed class JoinRequestService(
             await afterCommit.FlushAsync(ct);
             await hints.TripViewChangedAsync(tripId, [me, him]);
             if (addToBuddies) await hints.BuddiesChangedAsync([me]);
+            discover?.Invalidate(me, him);
         }
         return result;
 

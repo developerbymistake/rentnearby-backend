@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Social;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
@@ -12,18 +14,22 @@ using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
 namespace RentNearBy.Infrastructure.Services.Social;
 
-// Contract 1.3 / 2.3: follow, unfollow, follow requests, people lists. Every follow write takes the pair lock; counters are
-// updated inline in the same transaction.
-public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices, SocialAfterCommit afterCommit, ILogger<FollowService> logger)
+// Contract 1.3 / 2.3: follow, unfollow, follow requests, people lists. Every follow write takes the pair lock. A follow writes one
+// Follows row (EffectsAt NULL) plus, when counted, the sender's FollowSendTimes; bell rows, push and counters come from
+// FollowEffectsJob after commit (DESIGN 5). Every other follow change marks both users in FollowCountDirty.
+public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices, SocialAfterCommit afterCommit, ILogger<FollowService> logger,
+    IFollowEffectsSignal? effects = null)
 {
     private static readonly string TargetSql = $"""
-        SELECT u."Id" AS "UserId", p."IsPrivate", p."NotifyFollows",
+        SELECT u."Id" AS "UserId", p."IsPrivate",
                (SELECT count(*) FROM "Follows" mf WHERE mf."FollowerId" = @me)::int AS "MyFollowing",
                (SELECT f."Status" FROM "Follows" f WHERE f."FollowerId" = @me AND f."FolloweeId" = u."Id") AS "Existing",
-               COALESCE(me."Name", '') AS "MyName"
+               {AcceptedFollow("@him", "@me")} AS "HeFollowsMe",
+               COALESCE(mp."FollowSendTimes", ARRAY[]::timestamptz[]) AS "MySendTimes",
+               mp."FollowBlockUntil" AS "MyBlockUntil"
         FROM "Users" u
         JOIN "UserProfiles" p ON p."UserId" = u."Id"
-        JOIN "Users" me ON me."Id" = @me
+        LEFT JOIN "UserProfiles" mp ON mp."UserId" = @me
         WHERE u."Id" = @him AND {ActiveSeeker("u")} AND NOT {BlockedEitherWay("@me", "@him")}
         """;
 
@@ -33,14 +39,12 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
         ON CONFLICT DO NOTHING
         """;
 
-    private const string CountUpSql = """
-        UPDATE "UserProfiles" SET "FollowingCount" = "FollowingCount" + CASE WHEN "UserId" = @a THEN 1 ELSE 0 END,
-                                  "FollowerCount" = "FollowerCount" + CASE WHEN "UserId" = @b THEN 1 ELSE 0 END
-        WHERE "UserId" IN (@a, @b)
+    private const string SaveSendTimesSql = """
+        UPDATE "UserProfiles" SET "FollowSendTimes" = @times WHERE "UserId" = @me
         """;
 
     private const string AcceptSql = """
-        UPDATE "Follows" SET "Status" = 'A', "AcceptedAt" = now()
+        UPDATE "Follows" SET "Status" = 'A', "AcceptedAt" = now(), "EffectsAt" = COALESCE("EffectsAt", now())
         WHERE "FollowerId" = @him AND "FolloweeId" = @me AND "Status" = 'R'
         """;
 
@@ -50,50 +54,57 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
 
     private const string NotifyFollowsSql = """SELECT p."NotifyFollows" AS "Value" FROM "UserProfiles" p WHERE p."UserId" = @u""";
 
+    // Without the Redis guard (tests, internal callers): the DB check alone decides.
     public async Task<BuddyResult<FollowStateDto>> FollowAsync(Guid me, Guid him, CancellationToken ct = default)
+        => (await FollowAsync(me, him, false, ct)).Result;
+
+    // mustBeExempt = Redis said FULL. The PgRetry lambda only RETURNS the outcome; FollowGuard.CompleteAsync acts on it once.
+    public async Task<FollowWriteOutcome> FollowAsync(Guid me, Guid him, bool mustBeExempt, CancellationToken ct)
     {
-        if (me == him) return BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.PersonNotFound);
-        var result = await PgRetry.OnceAsync(db, async c =>
+        if (me == him) return new FollowWriteOutcome(BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.PersonNotFound), FollowGuardOutcome.Nothing);
+        var written = await PgRetry.OnceAsync(db, async c =>
         {
-            afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
-            // Contract D6: the cap is a COUNT of my follow rows (accepted AND requested) under the sender lock; order sender -> pair.
-            // Requested rows count from the start, so a later accept can never take me past the cap.
+            // Order sender -> pair. Under the sender lock the week/day window, the block and the FollowingMax count are exact.
             await BuddyLocks.LockSenderAsync(db, me, c);
             await BuddyLocks.LockPairAsync(db, me, him, c);
             var t = (await db.Database.SqlQueryRaw<TargetRow>(TargetSql, Uuid("me", me), Uuid("him", him)).ToListAsync(c)).FirstOrDefault();
-            if (t is null) return BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.PersonNotFound);
-            if (t.Existing is { } existing)
-                return BuddyResult<FollowStateDto>.Success(new FollowStateDto { State = existing == FollowStatuses.Accepted ? FollowStates.Following : FollowStates.Requested });
-            if (t.MyFollowing >= SocialLimits.FollowingMax) return BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.FollowingLimit);
+            var now = Now();
+            var decision = FollowWriteRules.Decide(
+                t is not null, t?.Existing is not null, t?.MyBlockUntil is { } b ? Utc(b) : null,
+                t is not null && t.MyFollowing >= SocialLimits.FollowingMax, t?.HeFollowsMe == true,
+                t?.MySendTimes.Select(Utc), mustBeExempt, now);
+            switch (decision.Kind)
+            {
+                case FollowWriteKind.NotFound:
+                    return new FollowWriteOutcome(BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.PersonNotFound), decision.Guard);
+                case FollowWriteKind.Existing:
+                    return new FollowWriteOutcome(State(t!.Existing!), decision.Guard);
+                case FollowWriteKind.FollowingLimit:
+                    return new FollowWriteOutcome(BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.FollowingLimit), decision.Guard);
+                case FollowWriteKind.Blocked:
+                case FollowWriteKind.Full:
+                    return new FollowWriteOutcome(BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.TryLater), decision.Guard);
+            }
 
-            var status = t.IsPrivate ? FollowStatuses.Requested : FollowStatuses.Accepted;
-            await db.Database.ExecuteSqlRawAsync(InsertSql, [Uuid("me", me), Uuid("him", him), Text("status", status)], c);
-            if (status == FollowStatuses.Accepted)
-            {
-                await db.Database.ExecuteSqlRawAsync(CountUpSql, [Uuid("a", me), Uuid("b", him)], c);
-                await notices.UpsertAsync([new NoticeUpsert(him, NoticeKinds.NewFollower, me, me)], c);
-                if (t.NotifyFollows) await notices.PushAsync([SocialPushCopy.NewFollower(him, me, t.MyName, Now())], c);
-                afterCommit.Hint(SocialLiveScopes.Followers, him);
-            }
-            else
-            {
-                await notices.UpsertAsync([new NoticeUpsert(him, NoticeKinds.FollowRequest, me, me)], c);
-                if (t.NotifyFollows) await notices.PushAsync([SocialPushCopy.FollowRequest(him, me, t.MyName)], c);
-                afterCommit.Hint(SocialLiveScopes.FollowRequests, him);
-            }
-            afterCommit.Wake();
+            var status = t!.IsPrivate ? FollowStatuses.Requested : FollowStatuses.Accepted;
+            var inserted = await db.Database.ExecuteSqlRawAsync(InsertSql, [Uuid("me", me), Uuid("him", him), Text("status", status)], c);
+            if (inserted == 0)
+                return new FollowWriteOutcome(State(status), new FollowGuardOutcome(false, false, true));
+            if (decision.Counted)
+                await db.Database.ExecuteSqlRawAsync(SaveSendTimesSql,
+                    [Uuid("me", me), Times("times", FollowGuardRules.Append(t.MySendTimes.Select(Utc), now))], c);
             await tx.CommitAsync(c);
-            return BuddyResult<FollowStateDto>.Success(new FollowStateDto { State = status == FollowStatuses.Accepted ? FollowStates.Following : FollowStates.Requested });
+            return new FollowWriteOutcome(State(status), decision.Guard);
         }, ct, logger);
-        if (result.Ok) await afterCommit.FlushAsync();
-        return result;
+        if (written.Result.Ok) effects?.Wake();
+        return written;
     }
 
-    // Unfollow, or cancel my request. Always 200.
-    public async Task UnfollowAsync(Guid me, Guid him, CancellationToken ct = default)
+    // Unfollow, or cancel my request. Always 200. True when a row was deleted (the handler then feeds the churn list).
+    public async Task<bool> UnfollowAsync(Guid me, Guid him, CancellationToken ct = default)
     {
-        if (me == him) return;
+        if (me == him) return false;
         var gone = await PgRetry.OnceAsync(db, async c =>
         {
             afterCommit.Clear();
@@ -109,7 +120,12 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
             await tx.CommitAsync(c);
             return status != null;
         }, ct, logger);
-        if (gone) await afterCommit.FlushAsync();
+        if (gone)
+        {
+            effects?.Wake();
+            await afterCommit.FlushAsync();
+        }
+        return gone;
     }
 
     // Remove a follower (and his place in my My Buddies). Always 200.
@@ -131,9 +147,12 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
             await tx.CommitAsync(c);
             return status != null;
         }, ct, logger);
-        if (gone) await afterCommit.FlushAsync();
+        if (!gone) return;
+        effects?.Wake();
+        await afterCommit.FlushAsync();
     }
 
+    // The FollowAccepted bell and push stay inline (the owner's own action); EffectsAt is set so no "new follower" goes out later.
     public async Task<BuddyResult<FollowStateDto>> AcceptRequestAsync(Guid me, Guid him, CancellationToken ct = default)
     {
         var result = await PgRetry.OnceAsync(db, async c =>
@@ -143,7 +162,7 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
             await BuddyLocks.LockPairAsync(db, me, him, c);
             var changed = await db.Database.ExecuteSqlRawAsync(AcceptSql, [Uuid("me", me), Uuid("him", him)], c);
             if (changed == 0) return BuddyResult<FollowStateDto>.Fail(SocialErrorTypes.RequestGone);
-            await db.Database.ExecuteSqlRawAsync(CountUpSql, [Uuid("a", him), Uuid("b", me)], c);
+            await MarkDirtyAsync(db, [me, him], c);
             await notices.DeleteAsync(NoticeKinds.FollowRequest, him, [me], c);
             await notices.UpsertAsync([new NoticeUpsert(him, NoticeKinds.FollowAccepted, me, me)], c);
             var notify = (await db.Database.SqlQueryRaw<bool>(NotifyFollowsSql, Uuid("u", him)).ToListAsync(c)).FirstOrDefault();
@@ -158,21 +177,35 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
             await tx.CommitAsync(c);
             return BuddyResult<FollowStateDto>.Success(new FollowStateDto { State = FollowStates.Accepted });
         }, ct, logger);
-        if (result.Ok) await afterCommit.FlushAsync();
+        if (!result.Ok) return result;
+        effects?.Wake();
+        await afterCommit.FlushAsync();
         return result;
     }
 
     public async Task DeclineRequestAsync(Guid me, Guid him, CancellationToken ct = default)
     {
-        await PgRetry.OnceAsync(db, async c =>
+        var changed = await PgRetry.OnceAsync(db, async c =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
             await BuddyLocks.LockPairAsync(db, me, him, c);
-            var changed = await db.Database.ExecuteSqlRawAsync(DeclineSql, [Uuid("me", me), Uuid("him", him)], c);
-            if (changed > 0) await notices.DeleteAsync(NoticeKinds.FollowRequest, him, [me], c);
+            var n = await db.Database.ExecuteSqlRawAsync(DeclineSql, [Uuid("me", me), Uuid("him", him)], c);
+            if (n > 0)
+            {
+                await MarkDirtyAsync(db, [me, him], c);
+                await notices.DeleteAsync(NoticeKinds.FollowRequest, him, [me], c);
+            }
             await tx.CommitAsync(c);
+            return n;
         }, ct, logger);
+        if (changed > 0) effects?.Wake();
     }
+
+    private static BuddyResult<FollowStateDto> State(string status) => BuddyResult<FollowStateDto>.Success(
+        new FollowStateDto { State = status == FollowStatuses.Accepted ? FollowStates.Following : FollowStates.Requested });
+
+    private static NpgsqlParameter Times(string name, DateTime[] values)
+        => new(name, NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = values.Select(Utc).ToArray() };
 
     // ------------------------------------------------------------------ lists (keyset (CreatedAt DESC, other id DESC))
 
@@ -263,10 +296,11 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
     {
         public Guid UserId { get; set; }
         public bool IsPrivate { get; set; }
-        public bool NotifyFollows { get; set; }
         public int MyFollowing { get; set; }
         public string? Existing { get; set; }
-        public string MyName { get; set; } = string.Empty;
+        public bool HeFollowsMe { get; set; }
+        public DateTime[] MySendTimes { get; set; } = [];
+        public DateTime? MyBlockUntil { get; set; }
     }
 
     private sealed class ListRow
@@ -276,3 +310,6 @@ public sealed class FollowService(ApplicationDbContext db, INoticeWriter notices
         public int Total { get; set; }
     }
 }
+
+// The answer of one follow write and what the Redis guard must do with it (FollowGuard.CompleteAsync).
+public sealed record FollowWriteOutcome(BuddyResult<FollowStateDto> Result, FollowGuardOutcome Guard);

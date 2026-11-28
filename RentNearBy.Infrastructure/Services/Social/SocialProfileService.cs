@@ -19,7 +19,7 @@ public sealed record ProfileBuild(UserProfile? Profile, string? ErrorType, objec
 // Contract 2.2: social profile, onboarding, privacy, traveller profile, limits and the admin identity correction.
 public sealed class SocialProfileService(
     ApplicationDbContext db, ISeekerLimits seekerLimits, PublicTripReader trips, SocialAfterCommit afterCommit,
-    TimeProvider clock, ILogger<SocialProfileService> logger, SeekerPlanReconcile? seekerPlans = null)
+    TimeProvider clock, ILogger<SocialProfileService> logger, SeekerPlanReconcile? seekerPlans = null, DiscoverCache? discover = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -289,20 +289,25 @@ public sealed class SocialProfileService(
             await db.SaveChangesAsync(ct);
             if (tx != null) await tx.CommitAsync(ct);
         }
+        if (r.Interests != null || r.Places != null || r.HomeStateName != null) discover?.Invalidate(me);
         return BuddyResult<MyProfileDto>.Success((await MyProfileAsync(me, ct))!);
 
         static BuddyResult<MyProfileDto> Fail(string field) => BuddyResult<MyProfileDto>.Fail(SocialErrorTypes.InvalidProfile, new { field });
         static BuddyResult<MyProfileDto> NotAllowed(string field) => BuddyResult<MyProfileDto>.Fail(SocialErrorTypes.TextNotAllowed, new { field });
     }
 
-    // Private -> public: every waiting follow request becomes accepted in one statement with the counters.
-    private static readonly string OpenRequestsSql = $"""
+    // Private -> public: every waiting follow request becomes accepted in one statement. No inline counters (DESIGN 5.2): both sides
+    // are marked dirty for FollowEffectsJob's recount, and EffectsAt is set so no "new follower" goes out for them.
+    internal static readonly string OpenRequestsSql = $"""
         WITH a AS (
-          UPDATE "Follows" SET "Status" = '{FollowStatuses.Accepted}', "AcceptedAt" = now()
+          UPDATE "Follows" SET "Status" = '{FollowStatuses.Accepted}', "AcceptedAt" = now(), "EffectsAt" = COALESCE("EffectsAt", now())
           WHERE "FolloweeId" = @me AND "Status" = '{FollowStatuses.Requested}'
           RETURNING "FollowerId"),
-        c1 AS (UPDATE "UserProfiles" SET "FollowerCount" = "FollowerCount" + (SELECT count(*) FROM a) WHERE "UserId" = @me),
-        c2 AS (UPDATE "UserProfiles" SET "FollowingCount" = "FollowingCount" + 1 WHERE "UserId" IN (SELECT "FollowerId" FROM a))
+        d AS (
+          INSERT INTO "FollowCountDirty" ("UserId", "MarkedAt")
+          SELECT x.id, now() FROM (SELECT @me AS id WHERE EXISTS (SELECT 1 FROM a) UNION SELECT a."FollowerId" FROM a) x
+          ORDER BY x.id
+          ON CONFLICT ("UserId") DO UPDATE SET "MarkedAt" = EXCLUDED."MarkedAt")
         SELECT "FollowerId" AS "Value" FROM a
         """;
 
@@ -332,6 +337,9 @@ public sealed class SocialProfileService(
           RETURNING p."LastDistrictAt")
         SELECT EXISTS (SELECT 1 FROM d) AS "Known",
                EXISTS (SELECT 1 FROM "UserProfiles" p WHERE p."UserId" = @me) AS "HasProfile",
+               (EXISTS (SELECT 1 FROM u) AND EXISTS (SELECT 1 FROM "UserProfiles" p WHERE p."UserId" = @me
+                  AND (p."LastDistrictId" IS DISTINCT FROM @district OR p."LastDistrictAt" IS NULL
+                       OR p."LastDistrictAt" <= now() - {Interval(PostNotifyRules.AreaStaleAfter)}))) AS "Moved",
                COALESCE((SELECT u."LastDistrictAt" FROM u),
                         (SELECT p."LastDistrictAt" FROM "UserProfiles" p WHERE p."UserId" = @me)) AS "At"
         """;
@@ -341,6 +349,7 @@ public sealed class SocialProfileService(
         var row = (await db.Database.SqlQueryRaw<AreaRow>(AreaSql, Uuid("me", me), Uuid("district", districtId)).ToListAsync(ct)).First();
         if (!row.HasProfile) return BuddyResult<AreaDto>.Fail(SocialErrorTypes.ProfileRequired);
         if (!row.Known) return BuddyResult<AreaDto>.Fail(SocialErrorTypes.InvalidArea, new { field = "districtId" });
+        if (row.Moved) discover?.Invalidate(me);
         return BuddyResult<AreaDto>.Success(new AreaDto { DistrictId = districtId, UpdatedAt = Utc(row.At ?? Now) });
     }
 
@@ -348,6 +357,7 @@ public sealed class SocialProfileService(
     {
         public bool Known { get; set; }
         public bool HasProfile { get; set; }
+        public bool Moved { get; set; }
         public DateTime? At { get; set; }
     }
 

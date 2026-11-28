@@ -14,8 +14,6 @@ public static class SocialRateLimits
 
     public static BuddyRateLimit Read(Guid userId) => new($"social:read:{userId}", 120, Minute);
     public static BuddyRateLimit Write(Guid userId) => new($"social:write:{userId}", 60, Minute);
-    // Abuse guard (owner 2026-11-27): new follows per rolling 24 hours; unfollow uses the Write key, so it never refunds one.
-    public static BuddyRateLimit Follow(Guid userId) => new($"social:follow:{userId}", SocialLimits.FollowsPerDay, Day);
     public static BuddyRateLimit ProfileEdit(Guid userId) => new($"social:profile:{userId}", 10, Day);
     public static BuddyRateLimit Publish(Guid userId) => new($"social:publish:{userId}", 10, Hour);
     public static BuddyRateLimit JoinSend(Guid userId) => new($"social:join:{userId}", 20, Hour);

@@ -4,6 +4,7 @@ using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Services.Buddy;
+using RentNearBy.Infrastructure.Services.Social;
 
 namespace RentNearBy.Api.Extensions;
 
@@ -25,6 +26,11 @@ public static class BuddyFeatureExtensions
         services.AddSignalR();
         services.AddSingleton<IBuddyLiveHints, BuddyLiveHints>();
         services.AddHostedService<BuddyFeatureJobsService>();
+
+        // Discover DESIGN 5.2: follow side effects (bell rows, counts, grouped follow pushes) after the follow commit.
+        services.AddSingleton<IFollowEffectsSignal, FollowEffectsSignal>();
+        services.AddScoped<FollowEffectsWork>();
+        services.AddHostedService<FollowEffectsJob>();
 
         services.AddBe1Buddies();
         services.AddBe2Sharing();

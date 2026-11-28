@@ -2,6 +2,7 @@ using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Infrastructure.Services.Buddy.Be1;
+using RentNearBy.Infrastructure.Services.Social;
 using StackExchange.Redis;
 
 namespace RentNearBy.Api.Extensions.Buddy;
@@ -21,6 +22,10 @@ public static class Be1Registration
         services.AddScoped<IUserBlockService, UserBlockService>();
         services.AddScoped<IBuddyFeatureJob, BuddyRequestExpiryJob>();
         services.AddScoped<IAccountDeletionParticipant, BuddyAccountDeletion>();
+        // Discover travellers (Buddy_resume/discover/DESIGN.md 3): Redis snapshot cache (no Redis = no cache) and the service.
+        services.AddSingleton(sp => new DiscoverCache(sp.GetService<IConnectionMultiplexer>(), sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<DiscoverCache>>()));
+        services.AddScoped<IDiscoverService, DiscoverService>();
         return services;
     }
 

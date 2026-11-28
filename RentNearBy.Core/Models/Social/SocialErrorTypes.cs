@@ -59,6 +59,9 @@ public static class SocialErrorTypes
     public const string PostLocked = "PostLocked";
     public const string RemoveMembersFirst = "RemoveMembersFirst";
     public const string TripDatesLocked = "TripDatesLocked";
+    // Discover follow guard: any follow limit or block (429, never data, never Retry-After).
+    public const string TryLater = "TryLater";
+    public const string TryLaterMessage = "Try again later. We limit some actions to keep Bakhli safe.";
 
     public const string PersonNotFound = BuddyErrorTypes.PersonNotFound;
     public const string TripNotFound = BuddyErrorTypes.TripNotFound;
@@ -110,6 +113,7 @@ public static class SocialErrorTypes
         [PostLocked] = (409, "You can remove this post 3 days after posting it."),
         [RemoveMembersFirst] = (409, "Remove the other travellers first."),
         [TripDatesLocked] = (409, "Travellers have joined this trip. Its dates cannot move into the past."),
+        [TryLater] = (429, TryLaterMessage),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

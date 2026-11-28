@@ -11,19 +11,41 @@ namespace RentNearBy.Api.Handlers.Social;
 // Contract 2.3: follow, people lists, follow requests, My Buddies.
 public static class FollowHandlers
 {
-    public static Task<IResult> Follow(
-        Guid userId, ClaimsPrincipal principal, FollowService follows, ApplicationDbContext db, IRateLimitService limiter, HttpContext http,
-        CancellationToken ct)
-        => SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Follow(ProfileHandlers.BuddyCaller(principal)), true,
-            async me => SocialHttp.From(await follows.FollowAsync(me, userId, ct)), ct);
+    // DESIGN 4.1: the Redis guard runs before any DB access, then the profile guard, then the exact DB check under the sender
+    // lock. The Redis side of the outcome runs once, after PgRetry, never with the request token (an abort must still release).
+    // Every limit or block answers 429 TryLater (no data, no Retry-After).
+    public static async Task<IResult> Follow(
+        Guid userId, ClaimsPrincipal principal, FollowService follows, FollowGuard guard, ApplicationDbContext db, CancellationToken ct)
+    {
+        if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
+        var ticket = await guard.TryAsync(db, me, userId, ct);
+        if (ticket is null) return SocialHttp.Error(SocialErrorTypes.TryLater);
+        FollowGuardOutcome? outcome = null;
+        try
+        {
+            if (await SocialSql.GuardAsync(db, me, true, ct) is { } fail)
+            {
+                outcome = FollowGuardOutcome.Nothing;
+                return SocialHttp.Error(fail.Type, fail.Data);
+            }
+            var written = await follows.FollowAsync(me, userId, ticket.MustBeExempt, ct);
+            outcome = written.Guard;
+            return SocialHttp.From(written.Result);
+        }
+        finally
+        {
+            await guard.CompleteAsync(db, ticket, outcome);
+        }
+    }
 
+    // Never refused by a follow block and never refunds a follow; a deleted row feeds the churn list.
     public static Task<IResult> Unfollow(
-        Guid userId, ClaimsPrincipal principal, FollowService follows, ApplicationDbContext db, IRateLimitService limiter, HttpContext http,
-        CancellationToken ct)
+        Guid userId, ClaimsPrincipal principal, FollowService follows, FollowGuard guard, ApplicationDbContext db, IRateLimitService limiter,
+        HttpContext http, CancellationToken ct)
         => SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Write(ProfileHandlers.BuddyCaller(principal)), false,
             async me =>
             {
-                await follows.UnfollowAsync(me, userId, ct);
+                if (await follows.UnfollowAsync(me, userId, ct)) await guard.UnfollowedAsync(me, userId);
                 return OkResponse(new { state = FollowStates.None });
             }, ct);
 

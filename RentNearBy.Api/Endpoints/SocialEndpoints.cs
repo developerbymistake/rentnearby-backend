@@ -26,6 +26,10 @@ public static class SocialEndpoints
         group.MapPost("/follow-requests/{userId:guid}/decline", FollowHandlers.DeclineRequest).SeekerOnly();
         group.MapPut("/buddies/{userId:guid}", FollowHandlers.AddBuddy).SeekerOnly();
 
+        group.MapGet("/discover", DiscoverHandlers.Discover).SeekerOnly();
+        group.MapPost("/discover/hidden/{userId:guid}", DiscoverHandlers.Hide).SeekerOnly();
+        group.MapGet("/discover/similar/{userId:guid}", DiscoverHandlers.Similar).SeekerOnly();
+
         group.MapGet("/trips/feed", PublicTripHandlers.Feed).SeekerOnly();
         group.MapGet("/trips/rail", PublicTripHandlers.Rail).SeekerOnly();
         group.MapGet("/trips/{tripId:guid}", PublicTripHandlers.Get).SeekerOnly();

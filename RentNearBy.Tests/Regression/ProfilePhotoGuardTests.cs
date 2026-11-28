@@ -112,6 +112,7 @@ public class ProfilePhotoGuardTests
         "RentNearBy.Infrastructure/Services/Buddy/TripAccess.cs",
         // Bakhli social: faces of people rows, posts, chats and notice actors (always the PersonFace thumb).
         "RentNearBy.Infrastructure/Services/Buddy/Be4/NoticeReader.cs",
+        "RentNearBy.Infrastructure/Services/Social/DiscoverService.cs",
         "RentNearBy.Infrastructure/Services/Social/PublicTripReader.cs",
         "RentNearBy.Infrastructure/Services/Social/SocialChatService.cs",
         "RentNearBy.Infrastructure/Services/Social/SocialProfileService.cs",

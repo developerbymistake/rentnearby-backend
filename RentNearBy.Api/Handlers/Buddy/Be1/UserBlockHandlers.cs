@@ -20,7 +20,7 @@ public static class UserBlockHandlers
     public static async Task<IResult> Block(
         Guid userId, BlockPersonRequest? request, IValidator<BlockPersonRequest> validator, ClaimsPrincipal principal,
         IUserBlockService blocks, UserReportService reports, IHubContext<ChatHub> hub, IRateLimitService limiter, HttpContext http,
-        CancellationToken ct)
+        CancellationToken ct, [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
     {
         if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         request ??= new BlockPersonRequest();
@@ -36,6 +36,7 @@ public static class UserBlockHandlers
             var outcome = await blocks.BlockAsync(me, userId, ct);
             if (outcome.Result == BlockResult.TooManyBlocks) return BuddyHttp.Error(BuddyErrorTypes.TooManyBlocks);
             await PushConversationStatusAsync(hub, outcome.FlippedConversationIds, Blocked, userId, me);
+            discover?.Invalidate(me);
             return NoContentResponse();
         });
     }

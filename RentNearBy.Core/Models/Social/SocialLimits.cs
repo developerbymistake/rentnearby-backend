@@ -66,8 +66,13 @@ public static class SocialLimits
     public const int PendingRequestsMax = 50;
     public const int NearbyPerPostMax = 50;
     public const int NearbyStartWithinDays = 60;
-    // New follows per rolling 24 hours (SocialRateLimits.Follow, 429 TooManyRequests); unfollow never refunds.
-    public const int FollowsPerDay = 50;
+    // Discover (Buddy_resume/discover/DESIGN.md 1, 3): page size, cached snapshot rows, per-chip quota, X hide days, similar strip.
+    public const int DiscoverPage = 20;
+    public const int DiscoverSnapshotMax = 200;
+    public const int DiscoverChipQuota = 40;
+    public const int DiscoverHideDays = 30;
+    public const int DiscoverSimilarDefault = 5;
+    public const int DiscoverSimilarMax = 10;
 
     public static readonly TimeSpan MessageLife = TimeSpan.FromHours(24);
     public static readonly TimeSpan RequestFirstMessageLife = TimeSpan.FromDays(7);

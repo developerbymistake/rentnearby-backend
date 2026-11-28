@@ -18,16 +18,30 @@ public static class SocialPushCopy
 
     private static string Name(string? name) => string.IsNullOrWhiteSpace(name) ? "Someone" : name.Trim();
 
-    public static PushSpec FollowRequest(Guid toUserId, Guid fromUserId, string? fromName) => new(
-        toUserId, NotificationTypes.SocialFollowRequest, $"folreq:{N(fromUserId)}:{N(toUserId)}",
-        "Follow request", $"{Name(fromName)} wants to follow you",
-        UserNotificationRoutes.People, Args(("tab", "requests")), $"folreq:{N(toUserId)}");
+    // Follow pushes are grouped per receiver and kind by FollowEffectsJob: the first follow opens a group that is sent after
+    // FollowPushGather; the next group of the same kind waits until FollowPushGap after the last send.
+    public static readonly TimeSpan FollowPushGather = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan FollowPushGap = TimeSpan.FromMinutes(60);
 
-    // One per receiver per hour.
-    public static PushSpec NewFollower(Guid toUserId, Guid fromUserId, string? fromName, DateTime nowUtc) => new(
-        toUserId, NotificationTypes.SocialNewFollower, $"fol:{N(toUserId)}:{BuddyPushCopy.Bucket(nowUtc, 60)}",
-        "New follower", $"{Name(fromName)} started following you",
-        UserNotificationRoutes.Traveller, Args(("userId", fromUserId.ToString())), $"fol:{N(toUserId)}");
+    public static string FollowGroupKey(Guid toUserId, string kind, DateTime pendingSinceUtc)
+        => $"fol:{N(toUserId)}:{kind}:{new DateTimeOffset(DateTime.SpecifyKind(pendingSinceUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()}";
+
+    private static string Others(int count) => count == 1 ? "1 other" : $"{count} others";
+
+    // "Rahul followed you" / "Rahul and 4 others followed you". One follower opens his profile, several open Followers.
+    public static PushSpec FollowersGrouped(Guid toUserId, int count, Guid latestId, string? latestName, DateTime pendingSinceUtc) => new(
+        toUserId, NotificationTypes.SocialNewFollower, FollowGroupKey(toUserId, FollowStatuses.Accepted, pendingSinceUtc),
+        count <= 1 ? "New follower" : "New followers",
+        count <= 1 ? $"{Name(latestName)} followed you" : $"{Name(latestName)} and {Others(count - 1)} followed you",
+        count <= 1 ? UserNotificationRoutes.Traveller : UserNotificationRoutes.People,
+        count <= 1 ? Args(("userId", latestId.ToString())) : Args(("tab", "followers")), $"fol:{N(toUserId)}");
+
+    // "Rahul wants to follow you" / "Rahul and 4 others want to follow you"; always opens the requests list.
+    public static PushSpec RequestsGrouped(Guid toUserId, int count, string? latestName, DateTime pendingSinceUtc) => new(
+        toUserId, NotificationTypes.SocialFollowRequest, FollowGroupKey(toUserId, FollowStatuses.Requested, pendingSinceUtc),
+        count <= 1 ? "Follow request" : "Follow requests",
+        count <= 1 ? $"{Name(latestName)} wants to follow you" : $"{Name(latestName)} and {Others(count - 1)} want to follow you",
+        UserNotificationRoutes.People, Args(("tab", "requests")), $"folreq:{N(toUserId)}");
 
     public static PushSpec FollowAccepted(Guid toUserId, Guid accepterId, string? accepterName) => new(
         toUserId, NotificationTypes.SocialFollowAccepted, $"folacc:{N(accepterId)}:{N(toUserId)}",

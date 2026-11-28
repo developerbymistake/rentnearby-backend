@@ -8,4 +8,6 @@ public class Follow
     public string Status { get; set; } = "A";
     public DateTime CreatedAt { get; set; }
     public DateTime? AcceptedAt { get; set; }
+    // Null = side effects (bell row, counts, grouped push) not done yet; FollowEffectsJob sets it (transactional outbox).
+    public DateTime? EffectsAt { get; set; }
 }

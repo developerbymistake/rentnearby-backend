@@ -87,8 +87,8 @@ public class RetentionScheduleTests
         Assert.True(o.ToList().IndexOf("TripEnquiries") < o.ToList().IndexOf("Chat"));
         Assert.Equal(new[] { "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs", "StayQuoteIssues" },
             o.Skip(o.ToList().IndexOf("Chat") + 1));
-        // 31 since trip compaction (TripCompaction, in the housekeeping slot before Sessions) and StayQuoteIssues.
-        Assert.Equal(31, o.Distinct().Count());
+        // 32 since trip compaction (TripCompaction, in the housekeeping slot before Sessions), StayQuoteIssues and DiscoverHides.
+        Assert.Equal(32, o.Distinct().Count());
         Assert.True(o.ToList().IndexOf("TripPaymentsEnded") < o.ToList().IndexOf("TripCompaction"));
         Assert.True(o.ToList().IndexOf("TripCompaction") < o.ToList().IndexOf("Sessions"));
         Assert.Equal(o.Count, RetentionSchedule.OrderOf("Nope"));

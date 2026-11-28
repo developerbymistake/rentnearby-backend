@@ -37,4 +37,10 @@ public class UserProfile
     // first publish / re-publish. Only in-window times are kept (a few entries).
     public DateTime[] NotifiedPostTimes { get; set; } = [];
     public DateTime[] PublishTimes { get; set; } = [];
+    // Discover follow guard (DESIGN 4.6): durable copy of the counted follow requests (rolling 7 days, in-window only) and of the
+    // block ladder, so a Redis flush never resets a limit or a block.
+    public DateTime[] FollowSendTimes { get; set; } = [];
+    public DateTime? FollowBlockUntil { get; set; }
+    public short FollowBlockLevel { get; set; }
+    public DateTime? FollowBlockLevelAt { get; set; }
 }
